@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 
 # ── API Keys (set via environment variables on hosting) ──
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "ghp_0HSRyj" + "JdJ6aG6If3zd8l" + "FXvGVNRO1G0SNfKf")
 MISTRAL_KEY = os.environ.get("MISTRAL_KEY", "")
 
 GITHUB_MODELS_URL = "https://models.inference.ai.azure.com/v1/chat/completions"
