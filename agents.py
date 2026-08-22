@@ -7,6 +7,7 @@ import json
 import time
 import sqlite3
 import os
+import tempfile
 from datetime import datetime
 
 # ── API Keys (set via environment variables on hosting) ──
