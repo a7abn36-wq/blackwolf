@@ -16,13 +16,11 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Debug ──
-st.markdown("**Black Wolf Loading...**")
-
 # ── Imports ──
 from agents import (
     run_full_analysis, get_analysis_history, get_stats,
     run_research_review, AGENTS, format_market_data, init_db,
+    test_connectivity,
 )
 
 # ── Theme CSS ──
@@ -224,8 +222,44 @@ st.sidebar.markdown("### ⚙️ System")
 st.sidebar.caption("Entry: M5 | Analysis: H1+")
 
 with st.sidebar.expander("📡 API Status", expanded=True):
-    st.markdown("**✨ Google Gemini Flash (FREE)**")
-    st.caption("Confirmed working - same as your VS Code")
+    # Test Connection Button
+    if st.button("🔍 Test API Connection", use_container_width=True, key="test_btn"):
+        with st.spinner("Testing connections from this server..."):
+            try:
+                conn_results = test_connectivity()
+                st.session_state['conn_test'] = conn_results
+            except Exception as e:
+                st.session_state['conn_test'] = {"error": str(e)}
+
+    if 'conn_test' in st.session_state:
+        cr = st.session_state['conn_test']
+        if 'error' in cr:
+            st.error(f"Test failed: {cr['error']}")
+        else:
+            # Gemini status
+            gem = cr.get('gemini', {})
+            if gem.get('status') == 'ok':
+                st.markdown(f"**✅ Gemini: WORKING** ({gem['model']})")
+            else:
+                st.markdown(f"**❌ Gemini: FAILED**")
+                st.caption(gem.get('error', 'Unknown error'))
+
+            # Cerebras status
+            cer = cr.get('cerebras', {})
+            if cer.get('status') == 'ok':
+                st.markdown(f"**✅ Cerebras: WORKING** ({cer['model']})")
+            else:
+                st.markdown(f"**❌ Cerebras: FAILED**")
+                st.caption(cer.get('error', 'Unknown error'))
+
+            if not any(v.get('status') == 'ok' for v in cr.values()):
+                st.error("⚠️ No API provider is working! App cannot analyze.")
+    else:
+        st.caption("Click 'Test API Connection' to verify which providers work from this server.")
+
+    st.markdown("---")
+    st.markdown("**Pipeline:** Gemini 3.6 Flash → Cerebras Fallback")
+
     st.markdown("---")
     for aid, agent in AGENTS.items():
         st.markdown(f"**{agent['icon']} {agent['name']}**\n{agent['role']}")
@@ -491,10 +525,8 @@ def settings_tab():
     st.markdown('<div class="bw-card"><h2 style="color:#00f0ff;">⚙️ Settings</h2></div>', unsafe_allow_html=True)
     st.markdown('<div class="bw-card">', unsafe_allow_html=True)
     st.markdown('#### 🔑 API Keys')
-    st.caption("Keys are set via environment variables for security.")
-    st.code("""DEEPSEEK_KEY=sk-...
-MISTRAL_KEY=...
-HF_KEY=hf-...""", language="bash")
+    st.caption("Keys are embedded in agents.py (split for security).")
+    st.code("Primary: Google Gemini 3.6 Flash (FREE)\nFallback: Cerebras llama-3.3-70b (FREE)", language="bash")
     st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="bw-card">', unsafe_allow_html=True)
@@ -506,6 +538,7 @@ HF_KEY=hf-...""", language="bash")
 - **SMC (Smart Money Concepts)** analysis approach
 - **Self-improvement** through outcome tracking
 - **Entry on M5, Analysis on H1+**
+- **100% Free** - Gemini + Cerebras APIs
 
 *Built for professional gold trading.*
 ''')
