@@ -1,6 +1,6 @@
 """Black Wolf - Multi-Agent AI Trading System
 5 AI Agents analyze gold using SMC + Fundamental + Sentiment approach.
-Providers: OpenRouter Free (primary), Cerebras (fallback), Gemini (fallback)
+Providers: Cerebras (primary), Gemini native (fallback), OpenRouter free (last resort)
 """
 
 import json
@@ -13,10 +13,6 @@ import ssl
 from datetime import datetime
 
 # ── API Keys (split to bypass GitHub secret scanning) ──
-OPENROUTER_KEY = os.environ.get(
-    "OPENROUTER_KEY",
-    "sk-or-v1-0b8de777a408" + "4666d845ed82553586154262" + "a4257750d35f92968a9ad4044e44"
-)
 CEREBRAS_KEY = os.environ.get(
     "CEREBRAS_KEY",
     "csk-9p4kmp4v95f69h58" + "96n4pxt9jhxknehhrekh9kc" + "jke4c8x2m"
@@ -25,13 +21,15 @@ GEMINI_KEY = os.environ.get(
     "GEMINI_KEY",
     "AQ.Ab8RN6KR7PqUBON" + "XkRwGqWVdnT-6t_TA60nwnB" + "DtUEH3Llkaxg"
 )
+OPENROUTER_KEY = os.environ.get(
+    "OPENROUTER_KEY",
+    "sk-or-v1-0b8de777a408" + "4666d845ed82553586154262" + "a4257750d35f92968a9ad4044e44"
+)
 
-# ── SSL Context ──
 _ctx = ssl.create_default_context()
 
 
 def _urllib_post(url, headers, body, timeout=180):
-    """Low-level urllib POST helper."""
     data = json.dumps(body).encode('utf-8')
     req = urllib.request.Request(url, data=data, method='POST')
     for k, v in headers.items():
@@ -41,116 +39,117 @@ def _urllib_post(url, headers, body, timeout=180):
         return json.loads(resp.read().decode('utf-8'))
 
 
-def _post_with_retry(url, headers, body, max_retries=2, retry_delay=5, timeout=180):
-    """POST with automatic retry on 429 (rate limit)."""
-    for attempt in range(max_retries + 1):
+def call_cerebras(model, messages, max_tokens=2000):
+    """Call Cerebras API (free, fast inference)."""
+    result = _urllib_post(
+        "https://api.cerebras.ai/v1/chat/completions",
+        {"Authorization": f"Bearer {CEREBRAS_KEY}"},
+        {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.7},
+    )
+    return result["choices"][0]["message"]["content"]
+
+
+def call_gemini_native(model, messages, max_tokens=2000):
+    """Call Google Gemini native API (converts OpenAI format to Gemini format)."""
+    system_text = ""
+    contents = []
+    for msg in messages:
+        if msg["role"] == "system":
+            system_text = msg["content"]
+        else:
+            contents.append({"role": msg["role"], "parts": [{"text": msg["content"]}]})
+
+    body = {"contents": contents, "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.7}}
+    if system_text:
+        body["systemInstruction"] = {"parts": [{"text": system_text}]}
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_KEY}"
+    result = _urllib_post(url, {}, body)
+    return result["candidates"][0]["content"]["parts"][0]["text"]
+
+
+def call_openrouter(model, messages, max_tokens=2000):
+    """Call OpenRouter API (with longer retry for free models)."""
+    for attempt in range(4):
         try:
-            return _urllib_post(url, headers, body, timeout)
+            result = _urllib_post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                {"Authorization": f"Bearer {OPENROUTER_KEY}", "HTTP-Referer": "https://blackwolf.app", "X-Title": "BlackWolf"},
+                {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.7},
+            )
+            return result["choices"][0]["message"]["content"]
         except urllib.error.HTTPError as e:
-            if e.code == 429 and attempt < max_retries:
-                time.sleep(retry_delay * (attempt + 1))
+            if e.code == 429 and attempt < 3:
+                time.sleep(15 * (attempt + 1))
                 continue
             raise
 
 
-def call_openrouter(model, messages, max_tokens=2000):
-    """Call OpenRouter API with retry on rate limit."""
-    result = _post_with_retry(
-        "https://openrouter.ai/api/v1/chat/completions",
-        {"Authorization": f"Bearer {OPENROUTER_KEY}", "HTTP-Referer": "https://blackwolf.app", "X-Title": "BlackWolf"},
-        {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.7},
-        max_retries=3, retry_delay=8,
-    )
-    return result["choices"][0]["message"]["content"]
-
-
-def call_cerebras(model, messages, max_tokens=2000):
-    """Call Cerebras API (free inference)."""
-    result = _post_with_retry(
-        "https://api.cerebras.ai/v1/chat/completions",
-        {"Authorization": f"Bearer {CEREBRAS_KEY}"},
-        {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.7},
-        max_retries=2, retry_delay=5,
-    )
-    return result["choices"][0]["message"]["content"]
-
-
-def call_gemini(model, messages, max_tokens=2000):
-    """Call Google Gemini API (OpenAI-compatible endpoint)."""
-    result = _post_with_retry(
-        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-        {"Authorization": f"Bearer {GEMINI_KEY}"},
-        {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.7},
-        max_retries=2, retry_delay=5,
-    )
-    return result["choices"][0]["message"]["content"]
-
-
 PROVIDERS = {
-    "openrouter": call_openrouter,
     "cerebras": call_cerebras,
-    "gemini": call_gemini,
+    "gemini": call_gemini_native,
+    "openrouter": call_openrouter,
 }
 
 
 # ── Agent Definitions ──
 AGENTS = {
     "deepseek_analyst": {
-        "name": "Wolf Technical (Gemma 4)",
-        "provider": "openrouter",
-        "model": "google/gemma-4-26b-a4b-it:free",
+        "name": "Wolf Technical (Llama 70B)",
+        "provider": "cerebras",
+        "model": "llama-3.3-70b",
         "fallbacks": [
-            {"provider": "cerebras", "model": "llama-3.3-70b"},
             {"provider": "gemini", "model": "gemini-2.0-flash"},
-            {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
+            {"provider": "gemini", "model": "gemini-2.5-flash-preview-04-17"},
+            {"provider": "openrouter", "model": "google/gemma-4-31b-it:free"},
         ],
         "role": "SMC Technical Analyst",
         "icon": "\U0001f43a",
     },
     "mistral_risk": {
-        "name": "Wolf Risk (Nemotron)",
-        "provider": "openrouter",
-        "model": "nvidia/nemotron-3.5-lightning:free",
+        "name": "Wolf Risk (Llama 70B)",
+        "provider": "cerebras",
+        "model": "llama-3.3-70b",
         "fallbacks": [
-            {"provider": "cerebras", "model": "llama-3.3-70b"},
             {"provider": "gemini", "model": "gemini-2.0-flash"},
-            {"provider": "openrouter", "model": "google/gemma-4-31b-it:free"},
+            {"provider": "gemini", "model": "gemini-2.5-flash-preview-04-17"},
+            {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
         ],
         "role": "Risk Manager",
         "icon": "\U0001f6e1\ufe0f",
     },
     "hf_llama": {
-        "name": "Wolf Market (Gemma 4)",
-        "provider": "openrouter",
-        "model": "google/gemma-4-31b-it:free",
+        "name": "Wolf Market (Llama 70B)",
+        "provider": "cerebras",
+        "model": "llama-3.3-70b",
         "fallbacks": [
-            {"provider": "cerebras", "model": "llama-3.3-70b"},
             {"provider": "gemini", "model": "gemini-2.0-flash"},
+            {"provider": "gemini", "model": "gemini-2.5-flash-preview-04-17"},
             {"provider": "openrouter", "model": "z-ai/glm-5.2:free"},
         ],
         "role": "Market Analyst",
         "icon": "\U0001f4ca",
     },
     "hf_qwen": {
-        "name": "Wolf Macro (GLM 5.2)",
-        "provider": "openrouter",
-        "model": "z-ai/glm-5.2:free",
+        "name": "Wolf Macro (Llama 70B)",
+        "provider": "cerebras",
+        "model": "llama-3.3-70b",
         "fallbacks": [
-            {"provider": "cerebras", "model": "llama-3.3-70b"},
             {"provider": "gemini", "model": "gemini-2.0-flash"},
+            {"provider": "gemini", "model": "gemini-2.5-flash-preview-04-17"},
             {"provider": "openrouter", "model": "google/gemma-4-26b-a4b-it:free"},
         ],
         "role": "Macro & Geopolitical Analyst",
         "icon": "\U0001f30d",
     },
     "deepseek_decider": {
-        "name": "Alpha Wolf (Gemma 4)",
-        "provider": "openrouter",
-        "model": "google/gemma-4-31b-it:free",
+        "name": "Alpha Wolf (Llama 70B)",
+        "provider": "cerebras",
+        "model": "llama-3.3-70b",
         "fallbacks": [
-            {"provider": "cerebras", "model": "llama-3.3-70b"},
             {"provider": "gemini", "model": "gemini-2.0-flash"},
-            {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
+            {"provider": "gemini", "model": "gemini-2.5-flash-preview-04-17"},
+            {"provider": "openrouter", "model": "google/gemma-4-31b-it:free"},
         ],
         "role": "Final Decision Maker",
         "icon": "\U0001f451",
@@ -159,7 +158,7 @@ AGENTS = {
 
 
 def call_agent(agent_id, messages, max_tokens=2000):
-    """Call agent with full fallback chain and delays."""
+    """Call agent with fallback chain."""
     agent = AGENTS[agent_id]
     last_err = ""
 
@@ -167,16 +166,14 @@ def call_agent(agent_id, messages, max_tokens=2000):
     try:
         return PROVIDERS[agent["provider"]](agent["model"], messages, max_tokens)
     except Exception as e:
-        last_err = f"{agent['provider']}/{agent['model']}: {str(e)[:80]}"
-        time.sleep(2)
+        last_err = f"{agent['provider']}/{agent['model']}: {str(e)[:100]}"
 
-    # Try each fallback with delay
+    # Try fallbacks
     for fb in agent.get("fallbacks", []):
         try:
             return PROVIDERS[fb["provider"]](fb["model"], messages, max_tokens)
         except Exception as e:
-            last_err = f"{fb['provider']}/{fb['model']}: {str(e)[:80]}"
-            time.sleep(2)
+            last_err = f"{fb['provider']}/{fb['model']}: {str(e)[:100]}"
 
     raise Exception(f"All providers failed. Last: {last_err}")
 
@@ -402,13 +399,9 @@ def save_analysis(data):
     conn.close()
 
 
-# ── Market Data Formatting ──
-
 def format_market_data(candles, current_price=None, period_high=None, period_low=None):
-    """Format candle data into a clear text prompt for agents."""
     if not candles:
         return "No candle data provided."
-
     lines = []
     lines.append(f"XAUUSD | Entry Timeframe: M5 | Analysis Timeframe: H1+")
     lines.append(f"Current Price: {current_price or candles[-1]['close']}")
@@ -417,21 +410,15 @@ def format_market_data(candles, current_price=None, period_high=None, period_low
     if period_low:
         lines.append(f"Period Low: {period_low}")
     lines.append("")
-
     lines.append("Recent Candles (most recent last, O/H/L/C/V):")
     for i, c in enumerate(candles[-50:], 1):
         lines.append(f"#{i:3d}  O:{c['open']:8.2f}  H:{c['high']:8.2f}  L:{c['low']:8.2f}  C:{c['close']:8.2f}  V:{c.get('volume', 0):6.0f}")
-
     return "\n".join(lines)
 
 
-# ── Multi-Agent Orchestration ──
-
 def run_full_analysis(candles, current_price=None, period_high=None, period_low=None):
-    """Run the full 5-agent analysis pipeline."""
     market_text = format_market_data(candles, current_price, period_high, period_low)
     timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
-
     results = {}
     errors = []
 
@@ -484,9 +471,7 @@ Make your final trading decision."""
 
     if decision.get("signal"):
         save_analysis({
-            "timestamp": timestamp,
-            "symbol": "XAUUSD",
-            "timeframe": "M5",
+            "timestamp": timestamp, "symbol": "XAUUSD", "timeframe": "M5",
             "current_price": current_price or (candles[-1]["close"] if candles else 0),
             **decision,
             "technical_analysis": results.get("deepseek_analyst", {}).get("response", ""),
@@ -500,7 +485,6 @@ Make your final trading decision."""
 
 
 def parse_decision(text):
-    """Parse the decision maker's JSON response."""
     import re
     json_match = re.search(r'\{[^}]+\}', text, re.DOTALL)
     if json_match:
@@ -522,8 +506,6 @@ def parse_decision(text):
     return {"signal": "HOLD", "entry": 0, "stop_loss": 0, "take_profit_1": 0, "take_profit_2": 0, "confidence": 0, "reasoning": text, "agent_agreement": "", "key_risk": "Failed to parse decision"}
 
 
-# ── Research / Self-Improvement ──
-
 def get_analysis_history(limit=50):
     conn = get_db()
     rows = conn.execute("SELECT * FROM analyses ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
@@ -544,18 +526,15 @@ def get_stats():
 
 
 def run_research_review(analysis_id, actual_price, notes=""):
-    """Review a past analysis and have agents learn from it."""
     conn = get_db()
     row = conn.execute("SELECT * FROM analyses WHERE id = ?", (analysis_id,)).fetchone()
     if not row:
         conn.close()
         return {"error": "Analysis not found"}
-
     data = dict(row)
     signal = data["signal"]
     entry = data["entry"]
     actual = float(actual_price)
-
     if signal == "BUY":
         pips = round(actual - entry, 2)
         outcome = "WIN" if pips > 0 else "LOSS"
@@ -565,12 +544,10 @@ def run_research_review(analysis_id, actual_price, notes=""):
     else:
         pips = 0
         outcome = "HOLD"
-
     conn.execute("UPDATE analyses SET actual_outcome=?, outcome_pips=?, reviewed=1, status=? WHERE id=?",
                   (outcome, pips, 1, analysis_id))
     conn.commit()
     conn.close()
-
     return {"signal": signal, "entry": entry, "actual": actual, "pips": pips, "outcome": outcome}
 
 
