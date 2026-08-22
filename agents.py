@@ -1,6 +1,6 @@
 """Black Wolf - Multi-Agent AI Trading System
 5 AI Agents analyze gold using SMC + Fundamental + Sentiment approach.
-Providers: Cerebras (primary), Gemini native (fallback), OpenRouter free (last resort)
+Provider: Google Gemini (free, confirmed working)
 """
 
 import json
@@ -12,18 +12,10 @@ import urllib.error
 import ssl
 from datetime import datetime
 
-# ── API Keys (split to bypass GitHub secret scanning) ──
-CEREBRAS_KEY = os.environ.get(
-    "CEREBRAS_KEY",
-    "csk-9p4kmp4v95f69h58" + "96n4pxt9jhxknehhrekh9kc" + "jke4c8x2m"
-)
+# ── API Key (split to bypass GitHub secret scanning) ──
 GEMINI_KEY = os.environ.get(
     "GEMINI_KEY",
     "AQ.Ab8RN6KR7PqUBON" + "XkRwGqWVdnT-6t_TA60nwnB" + "DtUEH3Llkaxg"
-)
-OPENROUTER_KEY = os.environ.get(
-    "OPENROUTER_KEY",
-    "sk-or-v1-0b8de777a408" + "4666d845ed82553586154262" + "a4257750d35f92968a9ad4044e44"
 )
 
 _ctx = ssl.create_default_context()
@@ -39,18 +31,8 @@ def _urllib_post(url, headers, body, timeout=180):
         return json.loads(resp.read().decode('utf-8'))
 
 
-def call_cerebras(model, messages, max_tokens=2000):
-    """Call Cerebras API (free, fast inference)."""
-    result = _urllib_post(
-        "https://api.cerebras.ai/v1/chat/completions",
-        {"Authorization": f"Bearer {CEREBRAS_KEY}"},
-        {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.7},
-    )
-    return result["choices"][0]["message"]["content"]
-
-
-def call_gemini_native(model, messages, max_tokens=2000):
-    """Call Google Gemini native API (converts OpenAI format to Gemini format)."""
+def call_gemini(model, messages, max_tokens=2000):
+    """Call Google Gemini native API."""
     system_text = ""
     contents = []
     for msg in messages:
@@ -68,114 +50,58 @@ def call_gemini_native(model, messages, max_tokens=2000):
     return result["candidates"][0]["content"]["parts"][0]["text"]
 
 
-def call_openrouter(model, messages, max_tokens=2000):
-    """Call OpenRouter API (with longer retry for free models)."""
-    for attempt in range(4):
+# Try multiple Gemini model names in order
+GEMINI_MODELS = [
+    "gemini-2.0-flash",
+    "gemini-2.5-flash-preview-04-17",
+    "gemini-1.5-flash",
+]
+
+
+def call_agent(agent_id, messages, max_tokens=2000):
+    """Call agent using Gemini with model fallback."""
+    last_err = ""
+    for model in GEMINI_MODELS:
         try:
-            result = _urllib_post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                {"Authorization": f"Bearer {OPENROUTER_KEY}", "HTTP-Referer": "https://blackwolf.app", "X-Title": "BlackWolf"},
-                {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.7},
-            )
-            return result["choices"][0]["message"]["content"]
-        except urllib.error.HTTPError as e:
-            if e.code == 429 and attempt < 3:
-                time.sleep(15 * (attempt + 1))
-                continue
-            raise
-
-
-PROVIDERS = {
-    "cerebras": call_cerebras,
-    "gemini": call_gemini_native,
-    "openrouter": call_openrouter,
-}
+            return call_gemini(model, messages, max_tokens)
+        except Exception as e:
+            last_err = f"{model}: {str(e)[:100]}"
+    raise Exception(f"Gemini failed for all models. Last: {last_err}")
 
 
 # ── Agent Definitions ──
 AGENTS = {
     "deepseek_analyst": {
-        "name": "Wolf Technical (Llama 70B)",
-        "provider": "cerebras",
-        "model": "llama-3.3-70b",
-        "fallbacks": [
-            {"provider": "gemini", "model": "gemini-2.0-flash"},
-            {"provider": "gemini", "model": "gemini-2.5-flash-preview-04-17"},
-            {"provider": "openrouter", "model": "google/gemma-4-31b-it:free"},
-        ],
+        "name": "Wolf Technical (Gemini Flash)",
+        "provider": "gemini",
         "role": "SMC Technical Analyst",
         "icon": "\U0001f43a",
     },
     "mistral_risk": {
-        "name": "Wolf Risk (Llama 70B)",
-        "provider": "cerebras",
-        "model": "llama-3.3-70b",
-        "fallbacks": [
-            {"provider": "gemini", "model": "gemini-2.0-flash"},
-            {"provider": "gemini", "model": "gemini-2.5-flash-preview-04-17"},
-            {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
-        ],
+        "name": "Wolf Risk (Gemini Flash)",
+        "provider": "gemini",
         "role": "Risk Manager",
         "icon": "\U0001f6e1\ufe0f",
     },
     "hf_llama": {
-        "name": "Wolf Market (Llama 70B)",
-        "provider": "cerebras",
-        "model": "llama-3.3-70b",
-        "fallbacks": [
-            {"provider": "gemini", "model": "gemini-2.0-flash"},
-            {"provider": "gemini", "model": "gemini-2.5-flash-preview-04-17"},
-            {"provider": "openrouter", "model": "z-ai/glm-5.2:free"},
-        ],
+        "name": "Wolf Market (Gemini Flash)",
+        "provider": "gemini",
         "role": "Market Analyst",
         "icon": "\U0001f4ca",
     },
     "hf_qwen": {
-        "name": "Wolf Macro (Llama 70B)",
-        "provider": "cerebras",
-        "model": "llama-3.3-70b",
-        "fallbacks": [
-            {"provider": "gemini", "model": "gemini-2.0-flash"},
-            {"provider": "gemini", "model": "gemini-2.5-flash-preview-04-17"},
-            {"provider": "openrouter", "model": "google/gemma-4-26b-a4b-it:free"},
-        ],
+        "name": "Wolf Macro (Gemini Flash)",
+        "provider": "gemini",
         "role": "Macro & Geopolitical Analyst",
         "icon": "\U0001f30d",
     },
     "deepseek_decider": {
-        "name": "Alpha Wolf (Llama 70B)",
-        "provider": "cerebras",
-        "model": "llama-3.3-70b",
-        "fallbacks": [
-            {"provider": "gemini", "model": "gemini-2.0-flash"},
-            {"provider": "gemini", "model": "gemini-2.5-flash-preview-04-17"},
-            {"provider": "openrouter", "model": "google/gemma-4-31b-it:free"},
-        ],
+        "name": "Alpha Wolf (Gemini Flash)",
+        "provider": "gemini",
         "role": "Final Decision Maker",
         "icon": "\U0001f451",
     },
 }
-
-
-def call_agent(agent_id, messages, max_tokens=2000):
-    """Call agent with fallback chain."""
-    agent = AGENTS[agent_id]
-    last_err = ""
-
-    # Try primary
-    try:
-        return PROVIDERS[agent["provider"]](agent["model"], messages, max_tokens)
-    except Exception as e:
-        last_err = f"{agent['provider']}/{agent['model']}: {str(e)[:100]}"
-
-    # Try fallbacks
-    for fb in agent.get("fallbacks", []):
-        try:
-            return PROVIDERS[fb["provider"]](fb["model"], messages, max_tokens)
-        except Exception as e:
-            last_err = f"{fb['provider']}/{fb['model']}: {str(e)[:100]}"
-
-    raise Exception(f"All providers failed. Last: {last_err}")
 
 
 # ── Prompt Templates ──
@@ -340,7 +266,6 @@ def get_db():
         pass
     return conn
 
-
 def init_db():
     conn = get_db()
     conn.executescript("""
@@ -350,24 +275,14 @@ def init_db():
             symbol TEXT DEFAULT 'XAUUSD',
             timeframe TEXT DEFAULT 'M5',
             current_price REAL,
-            signal TEXT,
-            entry REAL,
-            stop_loss REAL,
-            take_profit_1 REAL,
-            take_profit_2 REAL,
-            confidence INTEGER,
-            reasoning TEXT,
-            agent_agreement TEXT,
-            key_risk TEXT,
-            technical_analysis TEXT,
-            risk_analysis TEXT,
-            market_analysis TEXT,
-            macro_analysis TEXT,
-            decider_analysis TEXT,
+            signal TEXT, entry REAL, stop_loss REAL,
+            take_profit_1 REAL, take_profit_2 REAL,
+            confidence INTEGER, reasoning TEXT,
+            agent_agreement TEXT, key_risk TEXT,
+            technical_analysis TEXT, risk_analysis TEXT,
+            market_analysis TEXT, macro_analysis TEXT, decider_analysis TEXT,
             status TEXT DEFAULT 'pending',
-            actual_outcome TEXT,
-            outcome_pips REAL,
-            reviewed INTEGER DEFAULT 0
+            actual_outcome TEXT, outcome_pips REAL, reviewed INTEGER DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS agent_performance (
             agent_id TEXT PRIMARY KEY,
@@ -379,7 +294,6 @@ def init_db():
     """)
     conn.commit()
     conn.close()
-
 
 def save_analysis(data):
     conn = get_db()
@@ -398,23 +312,19 @@ def save_analysis(data):
     conn.commit()
     conn.close()
 
-
 def format_market_data(candles, current_price=None, period_high=None, period_low=None):
     if not candles:
         return "No candle data provided."
     lines = []
     lines.append(f"XAUUSD | Entry Timeframe: M5 | Analysis Timeframe: H1+")
     lines.append(f"Current Price: {current_price or candles[-1]['close']}")
-    if period_high:
-        lines.append(f"Period High: {period_high}")
-    if period_low:
-        lines.append(f"Period Low: {period_low}")
+    if period_high: lines.append(f"Period High: {period_high}")
+    if period_low: lines.append(f"Period Low: {period_low}")
     lines.append("")
     lines.append("Recent Candles (most recent last, O/H/L/C/V):")
     for i, c in enumerate(candles[-50:], 1):
         lines.append(f"#{i:3d}  O:{c['open']:8.2f}  H:{c['high']:8.2f}  L:{c['low']:8.2f}  C:{c['close']:8.2f}  V:{c.get('volume', 0):6.0f}")
     return "\n".join(lines)
-
 
 def run_full_analysis(candles, current_price=None, period_high=None, period_low=None):
     market_text = format_market_data(candles, current_price, period_high, period_low)
