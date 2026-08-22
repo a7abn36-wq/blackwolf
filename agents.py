@@ -10,44 +10,45 @@ import os
 from datetime import datetime
 
 # ── API Keys (set via environment variables on hosting) ──
-DEEPSEEK_KEY = os.environ.get("DEEPSEEK_KEY", "")
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 MISTRAL_KEY = os.environ.get("MISTRAL_KEY", "")
-HF_KEY = os.environ.get("HF_KEY", "")
+
+GITHUB_MODELS_URL = "https://models.inference.ai.azure.com/v1/chat/completions"
 
 # ── Agent Definitions ──
 AGENTS = {
     "deepseek_analyst": {
-        "name": "Wolf Technical (DeepSeek V3)",
-        "provider": "deepseek",
-        "model": "deepseek-chat",
+        "name": "Wolf Technical (DeepSeek R1)",
+        "provider": "github",
+        "model": "deepseek-ai/DeepSeek-R1",
         "role": "SMC Technical Analyst",
         "icon": "🐺",
     },
     "mistral_risk": {
-        "name": "Wolf Risk (Mistral)",
-        "provider": "mistral",
-        "model": "mistral-small-latest",
+        "name": "Wolf Risk (Mistral Small)",
+        "provider": "github",
+        "model": "mistralai/Mistral-small-24B-Instruct-2501",
         "role": "Risk Manager",
         "icon": "🛡️",
     },
     "hf_llama": {
         "name": "Wolf Market (Llama 3.3 70B)",
-        "provider": "huggingface",
+        "provider": "github",
         "model": "meta-llama/Llama-3.3-70B-Instruct",
         "role": "Market Analyst",
         "icon": "📊",
     },
     "hf_qwen": {
         "name": "Wolf Macro (Qwen 2.5 72B)",
-        "provider": "huggingface",
+        "provider": "github",
         "model": "Qwen/Qwen2.5-72B-Instruct",
         "role": "Macro & Geopolitical Analyst",
         "icon": "🌍",
     },
     "deepseek_decider": {
         "name": "Alpha Wolf (DeepSeek R1)",
-        "provider": "deepseek",
-        "model": "deepseek-reasoner",
+        "provider": "github",
+        "model": "deepseek-ai/DeepSeek-R1",
         "role": "Final Decision Maker",
         "icon": "👑",
     },
@@ -56,25 +57,25 @@ AGENTS = {
 
 # ── API Call Functions ──
 
-def call_deepseek(model, messages, max_tokens=2000):
-    """Call DeepSeek API."""
+def call_github_models(model, messages, max_tokens=2000):
+    """Call GitHub Models API (Azure-hosted, free via GitHub token)."""
     resp = requests.post(
-        "https://api.deepseek.com/chat/completions",
-        headers={"Authorization": f"Bearer {DEEPSEEK_KEY}", "Content-Type": "application/json"},
+        GITHUB_MODELS_URL,
+        headers={"Authorization": f"Bearer {GITHUB_TOKEN}", "Content-Type": "application/json"},
         json={"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.7},
-        timeout=120,
+        timeout=180,
     )
     if resp.status_code != 200:
-        raise Exception(f"DeepSeek {resp.status_code}: {resp.text[:300]}")
+        raise Exception(f"GitHub Models {resp.status_code}: {resp.text[:300]}")
     return resp.json()["choices"][0]["message"]["content"]
 
 
 def call_mistral(model, messages, max_tokens=2000):
-    """Call Mistral API."""
+    """Call Mistral direct API (fallback)."""
     resp = requests.post(
         "https://api.mistral.ai/v1/chat/completions",
         headers={"Authorization": f"Bearer {MISTRAL_KEY}", "Content-Type": "application/json"},
-        json={"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.7},
+        json={"model": "mistral-small-latest", "messages": messages, "max_tokens": max_tokens, "temperature": 0.7},
         timeout=120,
     )
     if resp.status_code != 200:
@@ -82,23 +83,9 @@ def call_mistral(model, messages, max_tokens=2000):
     return resp.json()["choices"][0]["message"]["content"]
 
 
-def call_huggingface(model, messages, max_tokens=2000):
-    """Call HuggingFace Inference API."""
-    resp = requests.post(
-        f"https://api-inference.huggingface.co/models/{model}/v1/chat/completions",
-        headers={"Authorization": f"Bearer {HF_KEY}", "Content-Type": "application/json"},
-        json={"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.7},
-        timeout=120,
-    )
-    if resp.status_code != 200:
-        raise Exception(f"HuggingFace {resp.status_code}: {resp.text[:300]}")
-    return resp.json()["choices"][0]["message"]["content"]
-
-
 PROVIDERS = {
-    "deepseek": call_deepseek,
+    "github": call_github_models,
     "mistral": call_mistral,
-    "huggingface": call_huggingface,
 }
 
 
