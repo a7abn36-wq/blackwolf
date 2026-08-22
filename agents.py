@@ -7,7 +7,6 @@ import json
 import time
 import sqlite3
 import os
-import tempfile
 from datetime import datetime
 
 # ── API Keys (set via environment variables on hosting) ──
@@ -250,7 +249,7 @@ Respond in this EXACT JSON format only (no markdown, no extra text):
 # ── Database ──
 
 def get_db():
-    db_path = os.environ.get("DB_PATH", os.path.join(tempfile.gettempdir(), "blackwolf.db"))
+    db_path = os.environ.get("DB_PATH", os.path.join(os.getcwd(), "blackwolf.db"))
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
