@@ -209,7 +209,7 @@ header { visibility: hidden; }
 </style>
 """, unsafe_allow_html=True)
 
-# ── Header ──
+# ── Header ──  (v2)
 st.markdown("""
 <div class="wolf-logo">🐺</div>
 <div class="wolf-title">BLACK WOLF</div>
