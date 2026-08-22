@@ -16,6 +16,9 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ── Debug ──
+st.markdown("**Black Wolf Loading...**")
+
 # ── Imports ──
 from agents import (
     run_full_analysis, get_analysis_history, get_stats,
@@ -203,13 +206,11 @@ section[data-testid="stSidebar"] .stMarkdown { color: #b0b0b0; }
 }
 
 /* ── Hide default elements ── */
-#MainMenu { visibility: hidden; }
-footer { visibility: hidden; }
-header { visibility: hidden; }
+
 </style>
 """, unsafe_allow_html=True)
 
-# ── Header ──  (v2)
+# ── Header ──
 st.markdown("""
 <div class="wolf-logo">🐺</div>
 <div class="wolf-title">BLACK WOLF</div>
