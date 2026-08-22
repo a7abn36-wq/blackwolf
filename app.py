@@ -223,8 +223,11 @@ st.sidebar.markdown("### ⚙️ System")
 st.sidebar.caption("Entry: M5 | Analysis: H1+")
 
 with st.sidebar.expander("📡 API Status", expanded=True):
-    st.markdown("**🐺 DeepSeek V3**\nSMC Technical Analyst")
-    st.markdown("**🛡️ Mistral**\nRisk Manager")
+    st.markdown("**🏠 GitHub Models (Azure)**")
+    st.caption("All 5 agents via single GitHub token")
+    st.markdown("---")
+    st.markdown("**🐺 DeepSeek R1**\nSMC Technical Analyst")
+    st.markdown("**🛡️ Mistral Small 24B**\nRisk Manager")
     st.markdown("**📊 Llama 3.3 70B**\nMarket Analyst")
     st.markdown("**🌍 Qwen 2.5 72B**\nMacro Analyst")
     st.markdown("**👑 DeepSeek R1**\nDecision Maker")
