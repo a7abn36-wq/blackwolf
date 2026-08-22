@@ -2,11 +2,13 @@
 5 AI Agents analyze gold using SMC + Fundamental + Sentiment approach.
 """
 
-import requests
 import json
 import time
 import sqlite3
 import os
+import urllib.request
+import urllib.error
+import ssl
 from datetime import datetime
 
 # ── API Keys (set via environment variables on hosting) ──
@@ -71,16 +73,26 @@ def call_github_models(model, messages, max_tokens=2000):
 
 
 def call_mistral(model, messages, max_tokens=2000):
-    """Call Mistral direct API (fallback)."""
-    resp = requests.post(
+    """Call Mistral direct API (fallback) using urllib."""
+    ctx = ssl.create_default_context()
+    payload = json.dumps({
+        "model": "mistral-small-latest", "messages": messages,
+        "max_tokens": max_tokens, "temperature": 0.7
+    }).encode()
+    req = urllib.request.Request(
         "https://api.mistral.ai/v1/chat/completions",
-        headers={"Authorization": f"Bearer {MISTRAL_KEY}", "Content-Type": "application/json"},
-        json={"model": "mistral-small-latest", "messages": messages, "max_tokens": max_tokens, "temperature": 0.7},
-        timeout=120,
+        data=payload,
+        headers={"Authorization": f"Bearer {MISTRAL_KEY}", "Content-Type": "application/json"}
     )
-    if resp.status_code != 200:
-        raise Exception(f"Mistral {resp.status_code}: {resp.text[:300]}")
-    return resp.json()["choices"][0]["message"]["content"]
+    try:
+        with urllib.request.urlopen(req, timeout=120, context=ctx) as resp:
+            data = json.loads(resp.read().decode())
+            return data["choices"][0]["message"]["content"]
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()[:300]
+        raise Exception(f"Mistral {e.code}: {body}")
+    except Exception as e:
+        raise Exception(f"Mistral error: {str(e)[:200]}")
 
 
 PROVIDERS = {
