@@ -224,15 +224,15 @@ st.sidebar.markdown("### ⚙️ System")
 st.sidebar.caption("Entry: M5 | Analysis: H1+")
 
 with st.sidebar.expander("📡 API Status", expanded=True):
-    st.markdown("**🌐 OpenRouter (Primary)**")
-    st.caption("Mistral Small + Llama 3.1 + Qwen 2.5")
-    st.markdown("**✨ Gemini (Fallback)**")
+    st.markdown("**🌐 OpenRouter FREE (Primary)**")
+    st.caption("Gemma 4 + Nemotron + GLM 5.2")
+    st.markdown("**⚡ Cerebras (Fallback 1)**")
+    st.caption("Llama 3.3 70B - Free")
+    st.markdown("**✨ Gemini (Fallback 2)**")
     st.caption("Google Gemini Flash")
-    st.markdown("**🏠 GitHub Models (Fallback)**")
-    st.caption("Azure-hosted models")
     st.markdown("---")
     for aid, agent in AGENTS.items():
-        st.markdown(f"**{agent['icon']} {agent['name']}**\n{agent['role']} [{agent['provider']}]")
+        st.markdown(f"**{agent['icon']} {agent['name']}**\n{agent['role']} [{agent['model']}]")
 
 with st.sidebar.expander("📊 Quick Stats"):
     stats = get_stats()
