@@ -224,12 +224,8 @@ st.sidebar.markdown("### ⚙️ System")
 st.sidebar.caption("Entry: M5 | Analysis: H1+")
 
 with st.sidebar.expander("📡 API Status", expanded=True):
-    st.markdown("**⚡ Cerebras (Primary) - FREE**")
-    st.caption("Llama 3.3 70B - No rate limit")
-    st.markdown("**✨ Gemini (Fallback) - FREE**")
-    st.caption("Google Gemini Flash")
-    st.markdown("**🌐 OpenRouter (Last Resort) - FREE**")
-    st.caption("Gemma 4 + Nemotron")
+    st.markdown("**✨ Google Gemini Flash (FREE)**")
+    st.caption("Confirmed working - same as your VS Code")
     st.markdown("---")
     for aid, agent in AGENTS.items():
         st.markdown(f"**{agent['icon']} {agent['name']}**\n{agent['role']}")
