@@ -1,6 +1,6 @@
 """Black Wolf - Multi-Agent AI Trading System
 5 AI Agents analyze gold using SMC + Fundamental + Sentiment approach.
-Providers: OpenRouter (primary), Gemini (fallback), GitHub Models (fallback)
+Providers: OpenRouter Free (primary), Cerebras (fallback), Gemini (fallback)
 """
 
 import json
@@ -17,20 +17,18 @@ OPENROUTER_KEY = os.environ.get(
     "OPENROUTER_KEY",
     "sk-or-v1-0b8de777a408" + "4666d845ed82553586154262" + "a4257750d35f92968a9ad4044e44"
 )
+CEREBRAS_KEY = os.environ.get(
+    "CEREBRAS_KEY",
+    "csk-9p4kmp4v95f69h58" + "96n4pxt9jhxknehhrekh9kc" + "jke4c8x2m"
+)
 GEMINI_KEY = os.environ.get(
     "GEMINI_KEY",
     "AQ.Ab8RN6KR7PqUBON" + "XkRwGqWVdnT-6t_TA60nwnB" + "DtUEH3Llkaxg"
-)
-GITHUB_TOKEN = os.environ.get(
-    "GITHUB_TOKEN",
-    "ghp_0HSRyjJdJ6aG6" + "If3zd8lFXvGVNRO1G0SNfKf"
 )
 
 # ── SSL Context ──
 _ctx = ssl.create_default_context()
 
-
-# ── Provider Call Functions ──
 
 def _urllib_post(url, headers, body, timeout=180):
     """Low-level urllib POST helper."""
@@ -43,99 +41,116 @@ def _urllib_post(url, headers, body, timeout=180):
         return json.loads(resp.read().decode('utf-8'))
 
 
+def _post_with_retry(url, headers, body, max_retries=2, retry_delay=5, timeout=180):
+    """POST with automatic retry on 429 (rate limit)."""
+    for attempt in range(max_retries + 1):
+        try:
+            return _urllib_post(url, headers, body, timeout)
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and attempt < max_retries:
+                time.sleep(retry_delay * (attempt + 1))
+                continue
+            raise
+
+
 def call_openrouter(model, messages, max_tokens=2000):
-    """Call OpenRouter API."""
-    result = _urllib_post(
+    """Call OpenRouter API with retry on rate limit."""
+    result = _post_with_retry(
         "https://openrouter.ai/api/v1/chat/completions",
         {"Authorization": f"Bearer {OPENROUTER_KEY}", "HTTP-Referer": "https://blackwolf.app", "X-Title": "BlackWolf"},
         {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.7},
+        max_retries=3, retry_delay=8,
+    )
+    return result["choices"][0]["message"]["content"]
+
+
+def call_cerebras(model, messages, max_tokens=2000):
+    """Call Cerebras API (free inference)."""
+    result = _post_with_retry(
+        "https://api.cerebras.ai/v1/chat/completions",
+        {"Authorization": f"Bearer {CEREBRAS_KEY}"},
+        {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.7},
+        max_retries=2, retry_delay=5,
     )
     return result["choices"][0]["message"]["content"]
 
 
 def call_gemini(model, messages, max_tokens=2000):
     """Call Google Gemini API (OpenAI-compatible endpoint)."""
-    result = _urllib_post(
-        f"https://generativelanguage.googleapis.com/v1beta/openai/chat/completions?key={GEMINI_KEY}",
-        {},
+    result = _post_with_retry(
+        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        {"Authorization": f"Bearer {GEMINI_KEY}"},
         {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.7},
-    )
-    return result["choices"][0]["message"]["content"]
-
-
-def call_github_models(model, messages, max_tokens=2000):
-    """Call GitHub Models API (Azure-hosted, free via GitHub token)."""
-    result = _urllib_post(
-        "https://models.inference.ai.azure.com/v1/chat/completions",
-        {"Authorization": f"Bearer {GITHUB_TOKEN}"},
-        {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.7},
+        max_retries=2, retry_delay=5,
     )
     return result["choices"][0]["message"]["content"]
 
 
 PROVIDERS = {
     "openrouter": call_openrouter,
+    "cerebras": call_cerebras,
     "gemini": call_gemini,
-    "github": call_github_models,
 }
 
 
 # ── Agent Definitions ──
-# Each agent has a primary provider and a fallback list.
-# If the primary fails, we try the fallbacks in order.
-
 AGENTS = {
     "deepseek_analyst": {
-        "name": "Wolf Technical (Mistral Small)",
+        "name": "Wolf Technical (Gemma 4)",
         "provider": "openrouter",
-        "model": "mistralai/mistral-small-24b-instruct-2501",
+        "model": "google/gemma-4-26b-a4b-it:free",
         "fallbacks": [
+            {"provider": "cerebras", "model": "llama-3.3-70b"},
             {"provider": "gemini", "model": "gemini-2.0-flash"},
-            {"provider": "github", "model": "mistralai/Mistral-small-24B-Instruct-2501"},
+            {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
         ],
         "role": "SMC Technical Analyst",
         "icon": "\U0001f43a",
     },
     "mistral_risk": {
-        "name": "Wolf Risk (Llama 3.1)",
+        "name": "Wolf Risk (Nemotron)",
         "provider": "openrouter",
-        "model": "meta-llama/llama-3.1-8b-instruct",
+        "model": "nvidia/nemotron-3.5-lightning:free",
         "fallbacks": [
+            {"provider": "cerebras", "model": "llama-3.3-70b"},
             {"provider": "gemini", "model": "gemini-2.0-flash"},
-            {"provider": "github", "model": "meta-llama/Llama-3.3-70B-Instruct"},
+            {"provider": "openrouter", "model": "google/gemma-4-31b-it:free"},
         ],
         "role": "Risk Manager",
         "icon": "\U0001f6e1\ufe0f",
     },
     "hf_llama": {
-        "name": "Wolf Market (Qwen 2.5)",
+        "name": "Wolf Market (Gemma 4)",
         "provider": "openrouter",
-        "model": "qwen/qwen-2.5-7b-instruct",
+        "model": "google/gemma-4-31b-it:free",
         "fallbacks": [
+            {"provider": "cerebras", "model": "llama-3.3-70b"},
             {"provider": "gemini", "model": "gemini-2.0-flash"},
-            {"provider": "github", "model": "Qwen/Qwen2.5-72B-Instruct"},
+            {"provider": "openrouter", "model": "z-ai/glm-5.2:free"},
         ],
         "role": "Market Analyst",
         "icon": "\U0001f4ca",
     },
     "hf_qwen": {
-        "name": "Wolf Macro (Mistral Small)",
+        "name": "Wolf Macro (GLM 5.2)",
         "provider": "openrouter",
-        "model": "mistralai/mistral-small-24b-instruct-2501",
+        "model": "z-ai/glm-5.2:free",
         "fallbacks": [
+            {"provider": "cerebras", "model": "llama-3.3-70b"},
             {"provider": "gemini", "model": "gemini-2.0-flash"},
-            {"provider": "github", "model": "deepseek-ai/DeepSeek-R1"},
+            {"provider": "openrouter", "model": "google/gemma-4-26b-a4b-it:free"},
         ],
         "role": "Macro & Geopolitical Analyst",
         "icon": "\U0001f30d",
     },
     "deepseek_decider": {
-        "name": "Alpha Wolf (Mistral Small)",
+        "name": "Alpha Wolf (Gemma 4)",
         "provider": "openrouter",
-        "model": "mistralai/mistral-small-24b-instruct-2501",
+        "model": "google/gemma-4-31b-it:free",
         "fallbacks": [
+            {"provider": "cerebras", "model": "llama-3.3-70b"},
             {"provider": "gemini", "model": "gemini-2.0-flash"},
-            {"provider": "github", "model": "deepseek-ai/DeepSeek-R1"},
+            {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
         ],
         "role": "Final Decision Maker",
         "icon": "\U0001f451",
@@ -144,25 +159,26 @@ AGENTS = {
 
 
 def call_agent(agent_id, messages, max_tokens=2000):
-    """Call a specific agent by ID, with fallback support."""
+    """Call agent with full fallback chain and delays."""
     agent = AGENTS[agent_id]
-    
-    # Try primary provider
+    last_err = ""
+
+    # Try primary
     try:
-        provider_fn = PROVIDERS[agent["provider"]]
-        return provider_fn(agent["model"], messages, max_tokens)
+        return PROVIDERS[agent["provider"]](agent["model"], messages, max_tokens)
     except Exception as e:
-        primary_err = str(e)[:150]
-    
-    # Try fallbacks
+        last_err = f"{agent['provider']}/{agent['model']}: {str(e)[:80]}"
+        time.sleep(2)
+
+    # Try each fallback with delay
     for fb in agent.get("fallbacks", []):
         try:
-            provider_fn = PROVIDERS[fb["provider"]]
-            return provider_fn(fb["model"], messages, max_tokens)
+            return PROVIDERS[fb["provider"]](fb["model"], messages, max_tokens)
         except Exception as e:
-            continue
-    
-    raise Exception(f"All providers failed for {agent['name']}. Last error: {primary_err}")
+            last_err = f"{fb['provider']}/{fb['model']}: {str(e)[:80]}"
+            time.sleep(2)
+
+    raise Exception(f"All providers failed. Last: {last_err}")
 
 
 # ── Prompt Templates ──
@@ -419,7 +435,6 @@ def run_full_analysis(candles, current_price=None, period_high=None, period_low=
     results = {}
     errors = []
 
-    # Phase 1: Independent analysis
     phase1_agents = [
         ("deepseek_analyst", TECHNICAL_PROMPT),
         ("mistral_risk", RISK_PROMPT),
@@ -440,7 +455,6 @@ def run_full_analysis(candles, current_price=None, period_high=None, period_low=
             results[agent_id] = {"status": "error", "error": str(e)}
             errors.append(f"{agent['name']}: {str(e)[:100]}")
 
-    # Phase 2: Decision
     if errors and len(errors) >= 3:
         return {"success": False, "error": f"Too many agents failed: {'; '.join(errors)}"}
 
@@ -450,7 +464,6 @@ def run_full_analysis(candles, current_price=None, period_high=None, period_low=
             agent = AGENTS[agent_id]
             agent_summaries.append(f"### {agent['icon']} {agent['name']} ({agent['role']})\n{results[agent_id]['response']}")
 
-    # Phase 3: Decider
     decider_input = f"""Here are the analyses from 4 specialized agents:\n\n{chr(10).join(agent_summaries)}\n\nCurrent gold price: {current_price or (candles[-1]['close'] if candles else 'Unknown')}\n
 Make your final trading decision."""
 
@@ -464,13 +477,11 @@ Make your final trading decision."""
     except Exception as e:
         results["deepseek_decider"] = {"status": "error", "error": str(e)}
 
-    # Parse decision
     decision = parse_decision(decider_response if results["deepseek_decider"]["status"] == "ok" else "")
     decision["timestamp"] = timestamp
     decision["errors"] = errors
     decision["agent_results"] = results
 
-    # Save to database
     if decision.get("signal"):
         save_analysis({
             "timestamp": timestamp,
@@ -563,7 +574,6 @@ def run_research_review(analysis_id, actual_price, notes=""):
     return {"signal": signal, "entry": entry, "actual": actual, "pips": pips, "outcome": outcome}
 
 
-# Init DB on import
 try:
     init_db()
 except Exception as e:
