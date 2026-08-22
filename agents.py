@@ -249,10 +249,13 @@ Respond in this EXACT JSON format only (no markdown, no extra text):
 # ── Database ──
 
 def get_db():
-    db_path = os.environ.get("DB_PATH", os.path.join(os.getcwd(), "blackwolf.db"))
+    db_path = os.environ.get("DB_PATH", "/tmp/blackwolf.db")
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+    except Exception:
+        pass
     return conn
 
 
@@ -492,4 +495,7 @@ def run_research_review(analysis_id, actual_price, notes=""):
 
 
 # Init DB on import
-init_db()
+try:
+    init_db()
+except Exception as e:
+    print(f"DB init warning: {e}")
