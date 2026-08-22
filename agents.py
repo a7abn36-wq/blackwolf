@@ -249,7 +249,7 @@ Respond in this EXACT JSON format only (no markdown, no extra text):
 # ── Database ──
 
 def get_db():
-    db_path = os.environ.get("DB_PATH", "/home/z/my-project/blackwolf/blackwolf.db")
+    db_path = os.environ.get("DB_PATH", os.path.join(tempfile.gettempdir(), "blackwolf.db"))
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
