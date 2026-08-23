@@ -440,8 +440,9 @@ void PushStatusToGitHub()
       // Decode base64 content to get previous equity curve
       uchar decBytes[];
       uchar encBytes[];
+      uchar decKey[];
       StringToCharArray(existingCurve, encBytes, 0, WHOLE_ARRAY, CP_UTF8);
-      int decLen = CryptDecode(CRYPT_BASE64, encBytes, decBytes);
+      int decLen = CryptDecode(CRYPT_BASE64, encBytes, decKey, decBytes);
       if(decLen > 0)
         {
          string prevData = CharArrayToString(decBytes, 0, decLen, CP_UTF8);
@@ -487,8 +488,8 @@ void PushStatusToGitHub()
       long posType = PositionGetInteger(POSITION_TYPE);
       string typeStr = (posType == POSITION_TYPE_BUY) ? "BUY" : "SELL";
       double openPrice = PositionGetDouble(PRICE_OPEN);
-      double posSl = PositionGetDouble(SL);
-      double posTp = PositionGetDouble(TP);
+      double posSl = PositionGetDouble(POSITION_SL);
+      double posTp = PositionGetDouble(POSITION_TP);
       double vol = PositionGetDouble(POSITION_VOLUME);
       
       if(StringLen(posDetails) > 0) posDetails += ",";
@@ -557,7 +558,8 @@ void PushStatusToGitHub()
    StringToCharArray(statusJson, statusBytes, 0, strLen, CP_UTF8);
    
    uchar encodedBytes[];
-   int encLen = CryptEncode(CRYPT_BASE64, statusBytes, encodedBytes);
+   uchar encKey[];
+   int encLen = CryptEncode(CRYPT_BASE64, statusBytes, encKey, encodedBytes);
    string encoded = CharArrayToString(encodedBytes, 0, encLen);
    
    // Remove line breaks from base64
