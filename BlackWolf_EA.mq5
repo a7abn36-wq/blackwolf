@@ -1,7 +1,7 @@
 //+------------------------------------------------------------------+
 //|                                              BlackWolf_EA.mq5       |
 //|                                    Copyright 2025, Black Wolf Trading  |
-//|                                    Version 3.11 - Locale Fix           |
+//|                                    Version 3.12 - Null Byte Fix        |
 //+------------------------------------------------------------------+
 #property copyright "Black Wolf Trading"
 #property version   "3.10"
@@ -167,7 +167,8 @@ string CallGeminiAPI(string prompt)
    char resultData[];
    string resultHeaders;
    
-   StringToCharArray(body, postData, 0, WHOLE_ARRAY, CP_UTF8);
+   int postLen = StringToCharArray(body, postData, 0, WHOLE_ARRAY, CP_UTF8);
+   if(postLen > 0) ArrayResize(postData, postLen - 1); // remove null terminator
    
    ResetLastError();
    int res = WebRequest("POST", url, headers, 5000, postData, resultData, resultHeaders);
@@ -553,7 +554,11 @@ void PushStatusToGitHub()
    char putData[];
    char putResult[];
    string putResultHeaders;
-   StringToCharArray(putBody, putData, 0, WHOLE_ARRAY, CP_UTF8);
+   int putLen = StringToCharArray(putBody, putData, 0, WHOLE_ARRAY, CP_UTF8);
+   if(putLen > 0) ArrayResize(putData, putLen - 1); // remove null terminator
+   
+   // Debug: print first 100 chars of putBody
+   Print("PUT body len=", StringLen(putBody), " array=", putLen);
    
    ResetLastError();
    res = WebRequest("PUT", GH_API_URL, putHeaders, 5000, putData, putResult, putResultHeaders);
