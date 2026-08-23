@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                              BlackWolf_EA.mq5       |
 //|                                    Copyright 2025, Black Wolf Trading  |
-//|                                    Version 3.00 - With GitHub Sync   |
+//|                                    Version 3.10 - Manual Base64      |
 //+------------------------------------------------------------------+
 #property copyright "Black Wolf Trading"
-#property version   "3.00"
+#property version   "3.10"
 #property strict
 
 //--- Inputs
@@ -47,10 +47,9 @@ int OnInit()
      }
    
    EventSetTimer(InpInterval * 60);
-   Print("Black Wolf EA v3.0 started. Symbol: ", _Symbol, " | Interval: ", InpInterval, " min");
-   Comment("\n  Black Wolf EA v3.0\n  Waiting for first analysis...\n");
+   Print("Black Wolf EA v3.1 started. Symbol: ", _Symbol, " | Interval: ", InpInterval, " min");
+   Comment("\n  Black Wolf EA v3.1\n  Waiting for first analysis...\n");
    
-   // Push initial status
    PushStatusToGitHub();
    
    return(INIT_SUCCEEDED);
@@ -91,8 +90,6 @@ void OnTimer()
      }
    
    ProcessSignal(result);
-   
-   // Always push status after analysis
    PushStatusToGitHub();
   }
 
@@ -259,7 +256,6 @@ void ProcessSignal(string signalJson)
    string reason  = GetJSONValue(signalJson, "reasoning");
    string risk    = GetJSONValue(signalJson, "risk");
    
-   // Store for status push
    LAST_SIGNAL_STR  = signal;
    LAST_CONFIDENCE  = conf;
    LAST_REASONING   = reason;
@@ -269,7 +265,7 @@ void ProcessSignal(string signalJson)
    Print("=== Black Wolf === ", signal, " | ", entry, " | SL:", sl, " | TP:", tp1, " | Conf:", conf, "%");
    Print("Reason: ", reason, " | Risk: ", risk);
    
-   string c = "\n  Black Wolf EA v3.0\n";
+   string c = "\n  Black Wolf EA v3.1\n";
    c += "  Signal: " + signal + " (" + IntegerToString(conf) + "%)\n";
    c += "  Entry: " + DoubleToString(entry, 2) + "\n";
    c += "  SL: " + DoubleToString(sl, 2) + "\n";
@@ -407,6 +403,35 @@ void DeleteOppositePositions(string newSignal)
   }
 
 //+------------------------------------------------------------------+
+//|                    MANUAL BASE64 (no CryptEncode)                  |
+//+------------------------------------------------------------------+
+string Base64Encode(string data)
+  {
+   uchar arr[];
+   int len = StringToCharArray(data, arr, 0, WHOLE_ARRAY, CP_UTF8);
+   if(len > 0) len--;
+   
+   string b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+   string result = "";
+   
+   for(int i = 0; i < len; i += 3)
+     {
+      int b0 = (int)arr[i];
+      int b1 = (i + 1 < len) ? (int)arr[i + 1] : 0;
+      int b2 = (i + 2 < len) ? (int)arr[i + 2] : 0;
+      
+      int trip = (b0 << 16) | (b1 << 8) | b2;
+      
+      result += StringSubstr(b64, (trip >> 18) & 0x3F, 1);
+      result += StringSubstr(b64, (trip >> 12) & 0x3F, 1);
+      result += (i + 1 < len) ? StringSubstr(b64, (trip >> 6) & 0x3F, 1) : "=";
+      result += (i + 2 < len) ? StringSubstr(b64, trip & 0x3F, 1) : "=";
+     }
+   
+   return result;
+  }
+
+//+------------------------------------------------------------------+
 //|                    GITHUB STATUS SYNC                              |
 //+------------------------------------------------------------------+
 void PushStatusToGitHub()
@@ -433,32 +458,6 @@ void PushStatusToGitHub()
    string getResp = CharArrayToString(getResult, 0, WHOLE_ARRAY, CP_UTF8);
    string sha = GetJSONValue(getResp, "sha");
    
-   // Also get existing equity curve
-   string existingCurve = GetJSONValue(getResp, "content");
-   string curveData = "";
-   if(StringLen(existingCurve) > 10)
-     {
-      // Decode base64 content to get previous equity curve
-      uchar decBytes[];
-      uchar encBytes[];
-      uchar decKey[];
-      StringToCharArray(existingCurve, encBytes, 0, WHOLE_ARRAY, CP_UTF8);
-      int decLen = CryptDecode(CRYPT_BASE64, encBytes, decKey, decBytes);
-      if(decLen > 0)
-        {
-         string prevData = CharArrayToString(decBytes, 0, decLen, CP_UTF8);
-         // Extract equity_curve from previous data
-         int curveStart = StringFind(prevData, "\"equity_curve\":\"");
-         if(curveStart >= 0)
-           {
-            curveStart += 17; // len of "equity_curve":"
-            int curveEnd = StringFind(prevData, "\"", curveStart);
-            if(curveEnd > curveStart)
-               curveData = StringSubstr(prevData, curveStart, curveEnd - curveStart);
-           }
-        }
-     }
-   
    if(StringLen(sha) < 10)
      {
       Print("Failed to get file SHA");
@@ -472,7 +471,7 @@ void PushStatusToGitHub()
    double freeMargin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
    
    int ourPositions = 0;
-   double totalProfit = 0;
+   double totalProfit = 0.0;
    string posDetails = "";
    
    for(int i = PositionsTotal() - 1; i >= 0; i--)
@@ -504,70 +503,37 @@ void PushStatusToGitHub()
       posDetails += "}";
      }
    
-   double drawdown = 0;
-   if(balance > 0)
+   double drawdown = 0.0;
+   if(balance > 0.0)
      {
       double dd = (balance - equity) / balance * 100.0;
-      if(dd > 0) drawdown = dd;
+      if(dd > 0.0) drawdown = dd;
      }
    
-   // 3. Update equity curve (keep last 96 points = 24h at 15min)
-   string newEquityPoint = DoubleToString(equity, 2);
-   if(StringLen(curveData) > 0)
-      curveData = curveData + "," + newEquityPoint;
-   else
-      curveData = newEquityPoint;
-   
-   // Trim to last 96 points
-   string curveArray[];
-   int curveCount = StringSplit(curveData, ',', curveArray);
-   if(curveCount > 96)
-     {
-      curveData = "";
-      for(int i = curveCount - 96; i < curveCount; i++)
-        {
-         if(StringLen(curveData) > 0) curveData += ",";
-         curveData += curveArray[i];
-        }
-     }
-   
-   // 4. Build status JSON
+   // 3. Build status JSON
    string timestamp = TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS);
-   string statusJson = "{";
-   statusJson += "\"status\":\"online\"";
-   statusJson += ",\"last_update\":\"" + timestamp + "\"";
-   statusJson += ",\"account_balance\":" + DoubleToString(balance, 2);
-   statusJson += ",\"account_equity\":" + DoubleToString(equity, 2);
-   statusJson += ",\"margin\":" + DoubleToString(margin, 2);
-   statusJson += ",\"free_margin\":" + DoubleToString(freeMargin, 2);
-   statusJson += ",\"open_trades\":" + IntegerToString(ourPositions);
-   statusJson += ",\"total_profit\":" + DoubleToString(totalProfit, 2);
-   statusJson += ",\"drawdown_pct\":" + DoubleToString(drawdown, 2);
-   statusJson += ",\"last_signal\":\"" + LAST_SIGNAL_STR + "\"";
-   statusJson += ",\"last_confidence\":" + IntegerToString(LAST_CONFIDENCE);
-   statusJson += ",\"last_reasoning\":\"" + EscapeJSON(LAST_REASONING) + "\"";
-   statusJson += ",\"symbol\":\"" + _Symbol + "\"";
-   statusJson += ",\"equity_curve\":\"" + curveData + "\"";
-   statusJson += ",\"open_positions\": [" + posDetails + "]";
-   statusJson += ",\"last_analysis\":\"" + TimeToString(LAST_ANALYSIS_TIME, TIME_DATE|TIME_MINUTES) + "\"";
-   statusJson += "}";
+   string sJson = "{";
+   sJson += "\"status\":\"online\"";
+   sJson += ",\"last_update\":\"" + timestamp + "\"";
+   sJson += ",\"account_balance\":" + DoubleToString(balance, 2);
+   sJson += ",\"account_equity\":" + DoubleToString(equity, 2);
+   sJson += ",\"margin\":" + DoubleToString(margin, 2);
+   sJson += ",\"free_margin\":" + DoubleToString(freeMargin, 2);
+   sJson += ",\"open_trades\":" + IntegerToString(ourPositions);
+   sJson += ",\"total_profit\":" + DoubleToString(totalProfit, 2);
+   sJson += ",\"drawdown_pct\":" + DoubleToString(drawdown, 2);
+   sJson += ",\"last_signal\":\"" + LAST_SIGNAL_STR + "\"";
+   sJson += ",\"last_confidence\":" + IntegerToString(LAST_CONFIDENCE);
+   sJson += ",\"last_reasoning\":\"" + EscapeJSON(LAST_REASONING) + "\"";
+   sJson += ",\"symbol\":\"" + _Symbol + "\"";
+   sJson += ",\"open_positions\": [" + posDetails + "]";
+   sJson += ",\"last_analysis\":\"" + TimeToString(LAST_ANALYSIS_TIME, TIME_DATE|TIME_MINUTES) + "\"";
+   sJson += "}";
    
-   // 5. Base64 encode
-   uchar statusBytes[];
-   int strLen = StringLen(statusJson);
-   ArrayResize(statusBytes, strLen);
-   StringToCharArray(statusJson, statusBytes, 0, strLen, CP_UTF8);
+   // 4. Base64 encode (manual - no CryptEncode needed)
+   string encoded = Base64Encode(sJson);
    
-   uchar encodedBytes[];
-   uchar encKey[];
-   int encLen = CryptEncode(CRYPT_BASE64, statusBytes, encKey, encodedBytes);
-   string encoded = CharArrayToString(encodedBytes, 0, encLen);
-   
-   // Remove line breaks from base64
-   StringReplace(encoded, "\r\n", "");
-   StringReplace(encoded, "\n", "");
-   
-   // 6. PUT to update file
+   // 5. PUT to update file
    string putBody = "{\"message\":\"EA status update\",\"content\":\"" + encoded + "\",\"sha\":\"" + sha + "\"}";
    string putHeaders = "Authorization: token " + GH_TOKEN + "\r\nContent-Type: application/json\r\nUser-Agent: BlackWolfEA\r\n";
    
