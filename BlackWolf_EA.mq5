@@ -1,7 +1,7 @@
 //+------------------------------------------------------------------+
 //|                                              BlackWolf_EA.mq5       |
 //|                                    Copyright 2025, Black Wolf Trading  |
-//|                                    Version 3.10 - Manual Base64      |
+//|                                    Version 3.11 - Locale Fix           |
 //+------------------------------------------------------------------+
 #property copyright "Black Wolf Trading"
 #property version   "3.10"
@@ -403,6 +403,16 @@ void DeleteOppositePositions(string newSignal)
   }
 
 //+------------------------------------------------------------------+
+//|         Force DOT decimal separator for JSON (locale fix)          |
+//+------------------------------------------------------------------+
+string D2S(double val, int digits)
+  {
+   string s = DoubleToString(val, digits);
+   StringReplace(s, ",", ".");
+   return s;
+  }
+
+//+------------------------------------------------------------------+
 //|                    MANUAL BASE64 (no CryptEncode)                  |
 //+------------------------------------------------------------------+
 string Base64Encode(string data)
@@ -495,11 +505,11 @@ void PushStatusToGitHub()
       if(StringLen(posDetails) > 0) posDetails += ",";
       posDetails += "{\"ticket\":" + IntegerToString((long)ticket);
       posDetails += ",\"type\":\"" + typeStr + "\"";
-      posDetails += ",\"volume\":" + DoubleToString(vol, 2);
-      posDetails += ",\"open_price\":" + DoubleToString(openPrice, 2);
-      posDetails += ",\"sl\":" + DoubleToString(posSl, 2);
-      posDetails += ",\"tp\":" + DoubleToString(posTp, 2);
-      posDetails += ",\"profit\":" + DoubleToString(profit, 2);
+      posDetails += ",\"volume\":" + D2S(vol, 2);
+      posDetails += ",\"open_price\":" + D2S(openPrice, 2);
+      posDetails += ",\"sl\":" + D2S(posSl, 2);
+      posDetails += ",\"tp\":" + D2S(posTp, 2);
+      posDetails += ",\"profit\":" + D2S(profit, 2);
       posDetails += "}";
      }
    
@@ -512,22 +522,25 @@ void PushStatusToGitHub()
    
    // 3. Build status JSON
    string timestamp = TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS);
+   StringReplace(timestamp, ".", "-");
    string sJson = "{";
    sJson += "\"status\":\"online\"";
    sJson += ",\"last_update\":\"" + timestamp + "\"";
-   sJson += ",\"account_balance\":" + DoubleToString(balance, 2);
-   sJson += ",\"account_equity\":" + DoubleToString(equity, 2);
-   sJson += ",\"margin\":" + DoubleToString(margin, 2);
-   sJson += ",\"free_margin\":" + DoubleToString(freeMargin, 2);
+   sJson += ",\"account_balance\":" + D2S(balance, 2);
+   sJson += ",\"account_equity\":" + D2S(equity, 2);
+   sJson += ",\"margin\":" + D2S(margin, 2);
+   sJson += ",\"free_margin\":" + D2S(freeMargin, 2);
    sJson += ",\"open_trades\":" + IntegerToString(ourPositions);
-   sJson += ",\"total_profit\":" + DoubleToString(totalProfit, 2);
-   sJson += ",\"drawdown_pct\":" + DoubleToString(drawdown, 2);
+   sJson += ",\"total_profit\":" + D2S(totalProfit, 2);
+   sJson += ",\"drawdown_pct\":" + D2S(drawdown, 2);
    sJson += ",\"last_signal\":\"" + LAST_SIGNAL_STR + "\"";
    sJson += ",\"last_confidence\":" + IntegerToString(LAST_CONFIDENCE);
    sJson += ",\"last_reasoning\":\"" + EscapeJSON(LAST_REASONING) + "\"";
    sJson += ",\"symbol\":\"" + _Symbol + "\"";
    sJson += ",\"open_positions\": [" + posDetails + "]";
-   sJson += ",\"last_analysis\":\"" + TimeToString(LAST_ANALYSIS_TIME, TIME_DATE|TIME_MINUTES) + "\"";
+   string lastAna = TimeToString(LAST_ANALYSIS_TIME, TIME_DATE|TIME_MINUTES);
+   StringReplace(lastAna, ".", "-");
+   sJson += ",\"last_analysis\":\"" + lastAna + "\"";
    sJson += "}";
    
    // 4. Base64 encode (manual - no CryptEncode needed)
