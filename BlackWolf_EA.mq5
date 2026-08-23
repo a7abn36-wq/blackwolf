@@ -419,9 +419,10 @@ void PushStatusToGitHub()
    string getHeaders = "Authorization: token " + GH_TOKEN + "\r\nUser-Agent: BlackWolfEA\r\n";
    
    char getResult[];
+   char emptyData[];
    string getResultHeaders;
    ResetLastError();
-   int res = WebRequest("GET", getUrl, getHeaders, 5000, NULL, getResult, getResultHeaders);
+   int res = WebRequest("GET", getUrl, getHeaders, 5000, emptyData, getResult, getResultHeaders);
    
    if(res != 200)
      {
@@ -487,7 +488,7 @@ void PushStatusToGitHub()
       
       long posType = PositionGetInteger(POSITION_TYPE);
       string typeStr = (posType == POSITION_TYPE_BUY) ? "BUY" : "SELL";
-      double openPrice = PositionGetDouble(PRICE_OPEN);
+      double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
       double posSl = PositionGetDouble(POSITION_SL);
       double posTp = PositionGetDouble(POSITION_TP);
       double vol = PositionGetDouble(POSITION_VOLUME);
