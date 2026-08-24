@@ -343,11 +343,13 @@ def fetch_ea_status():
 
 
 def parse_ea_time(time_str):
-    """Parse EA timestamp like '2025.08.24 15:30:00' to datetime."""
-    try:
-        return datetime.strptime(time_str, "%Y.%m.%d %H:%M:%S")
-    except:
-        return None
+    """Parse EA timestamp like '2025.08.24 15:30:00' or '2025-08-24 15:30:00' to datetime."""
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y.%m.%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(time_str, fmt)
+        except:
+            continue
+    return None
 
 
 def get_ea_online_status(ea_data):
