@@ -1,7 +1,7 @@
 //+------------------------------------------------------------------+
 //|                                              BlackWolf_EA.mq5       |
 //|                                    Copyright 2025, Black Wolf Trading  |
-//|                                    Version 3.12 - Null Byte Fix        |
+//|                                    Version 3.13 - Spread Fix            |
 //+------------------------------------------------------------------+
 #property copyright "Black Wolf Trading"
 #property version   "3.10"
@@ -11,7 +11,7 @@
 input string   InpApiKey         = "";           // Gemini API Key
 input string   InpGitHubToken    = "";           // GitHub Token (for status sync)
 input double   InpLotSize        = 0.01;         // Lot Size
-input int      InpMaxSpread      = 50;           // Max Spread (points)
+input int      InpMaxSpread      = 500;          // Max Spread (points, 0=disabled)
 input int      InpInterval       = 15;           // Check Every (minutes)
 input int      InpCandles        = 50;           // Number of Candles
 input ulong    InpMagicNumber    = 777001;       // Magic Number
@@ -69,8 +69,9 @@ void OnTimer()
       return;
    
    long spread = SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
-   if(spread > InpMaxSpread)
+   if(InpMaxSpread > 0 && spread > InpMaxSpread)
      {
+      Print("Spread ", spread, " > max ", InpMaxSpread, " - skipping analysis");
       PushStatusToGitHub();
       return;
      }
