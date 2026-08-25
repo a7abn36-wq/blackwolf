@@ -353,9 +353,12 @@ def parse_ea_time(time_str):
 
 
 def get_ea_online_status(ea_data):
-    """Determine if EA is online based on last_update."""
-    last_update = ea_data.get('last_update', '')
-    if not last_update or ea_data.get('status') != 'online':
+    """Determine if EA is online based on last_update or timestamp."""
+    # EA sends 'timestamp', website also accepts 'last_update'
+    last_update = ea_data.get('last_update', '') or ea_data.get('timestamp', '')
+    # EA sends 'ONLINE' (uppercase), accept both
+    status_val = ea_data.get('status', '').lower()
+    if not last_update or status_val != 'online':
         return False, "Never connected"
     
     try:
