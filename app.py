@@ -504,7 +504,7 @@ The Expert Advisor is not reporting status. Make sure:
     # ── Last Signal + Reasoning ──
     last_signal = ea_data.get('last_signal', 'NONE')
     last_conf = ea_data.get('last_confidence', 0)
-    last_reason = ea_data.get('last_reasoning', '')
+    last_reason = ea_data.get('last_reasoning', '') or ea_data.get('error', '')
     last_analysis = ea_data.get('last_analysis', '')
     
     signal_class_map = {
