@@ -358,7 +358,7 @@ def get_ea_online_status(ea_data):
     last_update = ea_data.get('last_update', '') or ea_data.get('timestamp', '')
     # EA sends 'ONLINE' (uppercase), accept both
     status_val = ea_data.get('status', '').lower()
-    if not last_update or status_val != 'online':
+    if not last_update or status_val == 'offline':
         return False, "Never connected"
     
     try:
