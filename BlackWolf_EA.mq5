@@ -1,7 +1,7 @@
 //+------------------------------------------------------------------+
 //|                                              BlackWolf_EA.mq5       |
 //|                                    Copyright 2025, Black Wolf Trading  |
-//|                                    Version 3.14 - Multi Model + Debug    |
+//|                                    Version 3.15 - JSON Parse Fix       |
 //+------------------------------------------------------------------+
 #property copyright "Black Wolf Trading"
 #property version   "3.10"
@@ -157,65 +157,39 @@ string BuildPrompt(string candleData)
 //+------------------------------------------------------------------+
 string CallGeminiAPI(string prompt)
   {
-   // Try multiple models in order
-   string models[] = {"gemini-2.5-flash-preview-05-20", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-3.6-flash"};
+   string model = "gemini-3.6-flash";
+   string url = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + API_KEY;
    
    string escaped = EscapeJSON(prompt);
    string body = "{\"contents\":[{\"parts\":[{\"text\":\"" + escaped + "\"}]}],\"generationConfig\":{\"maxOutputTokens\":500,\"temperature\":0.7}}";
    
    string headers = "Content-Type: application/json\r\n";
    
-   for(int m = 0; m < ArraySize(models); m++)
+   char postData[];
+   char resultData[];
+   string resultHeaders;
+   int postLen = StringToCharArray(body, postData, 0, WHOLE_ARRAY, CP_UTF8);
+   if(postLen > 0) ArrayResize(postData, postLen - 1);
+   
+   ResetLastError();
+   int res = WebRequest("POST", url, headers, 30000, postData, resultData, resultHeaders);
+   
+   if(res == -1)
      {
-      string url = "https://generativelanguage.googleapis.com/v1beta/models/" + models[m] + ":generateContent?key=" + API_KEY;
-      
-      char postData[];
-      char resultData[];
-      string resultHeaders;
-      int postLen = StringToCharArray(body, postData, 0, WHOLE_ARRAY, CP_UTF8);
-      if(postLen > 0) ArrayResize(postData, postLen - 1);
-      
-      ResetLastError();
-      Print("Trying model: ", models[m], "...");
-      int res = WebRequest("POST", url, headers, 30000, postData, resultData, resultHeaders);
-      
-      if(res == -1)
-        {
-         int err = GetLastError();
-         Print("  WebRequest ERROR ", err);
-         if(err == 4060)
-            Print("  FIX: Allow WebRequest + add: generativelanguage.googleapis.com");
-         continue;
-        }
-      
-      if(res != 200)
-        {
-         string s = CharArrayToString(resultData, 0, WHOLE_ARRAY, CP_UTF8);
-         string h = StringSubstr(resultHeaders, 0, 300);
-         Print("  HTTP ", res, " | Body: ", StringSubstr(s, 0, 200));
-         Print("  Headers: ", h);
-         continue;
-        }
-      
-      string resp = CharArrayToString(resultData, 0, WHOLE_ARRAY, CP_UTF8);
-      Print("Gemini OK [", models[m], "] len=", StringLen(resp));
-      return resp;
+      Print("WebRequest ERROR ", GetLastError());
+      return "";
      }
    
-   Print("ALL MODELS FAILED");
-   return "";
-  }
-
-//+------------------------------------------------------------------+
-string EscapeJSON(string text)
-  {
-   string r = text;
-   StringReplace(r, "\\", "\\\\");
-   StringReplace(r, "\"", "\\\"");
-   StringReplace(r, "\n", "\\n");
-   StringReplace(r, "\r", "\\r");
-   StringReplace(r, "\t", "\\t");
-   return r;
+   if(res != 200)
+     {
+      string s = CharArrayToString(resultData, 0, WHOLE_ARRAY, CP_UTF8);
+      Print("HTTP ", res, ": ", StringSubstr(s, 0, 300));
+      return "";
+     }
+   
+   string resp = CharArrayToString(resultData, 0, WHOLE_ARRAY, CP_UTF8);
+   Print("Gemini OK len=", StringLen(resp));
+   return resp;
   }
 
 //+------------------------------------------------------------------+
@@ -254,7 +228,88 @@ string ExtractJSON(string response)
    if(end > start)
       return StringSubstr(response, start, end - start + 1);
    
+//+------------------------------------------------------------------+
+string ExtractJSON(string response)
+  {
+   // Step 1: Extract text from Gemini API JSON response
+   string text = "";
+   int tStart = StringFind(response, "\"text\":\"");
+   if(tStart >= 0)
+     {
+      tStart += 8;
+      int tEnd = StringFind(response, "\"", tStart);
+      if(tEnd > tStart)
+         text = StringSubstr(response, tStart, tEnd - tStart);
+     }
+   
+   // Step 2: Unescape the text
+   if(StringLen(text) > 10)
+     {
+      StringReplace(text, "\\"", "\");
+      StringReplace(text, "\n", "");
+      StringReplace(text, "```json", "");
+      StringReplace(text, "```", "");
+      
+      Print("Text len=", StringLen(text));
+      
+      int start = StringFind(text, "{\"signal");
+      if(start < 0) start = StringFind(text, "{\"signal\":");
+      
+      if(start >= 0)
+        {
+         int depth = 0, end = -1;
+         for(int i = start; i < StringLen(text); i++)
+           {
+            ushort ch = StringGetCharacter(text, i);
+            if(ch == '{') depth++;
+            else if(ch == '}') { depth--; if(depth == 0) { end = i; break; } }
+           }
+         if(end > start)
+           {
+            Print("Signal found");
+            return StringSubstr(text, start, end - start + 1);
+           }
+        }
+     }
+   
+   // Step 3: Fallback
+   Print("Full response: ", StringSubstr(response, 0, 500));
+   StringReplace(response, "```json", "");
+   StringReplace(response, "```", "");
+   
+   int start = StringFind(response, "{\"signal");
+   if(start < 0) start = StringFind(response, "{ \"signal");
+   if(start < 0) start = StringFind(response, "{\"signal\":");
+   
+   if(start < 0)
+     {
+      Print("No signal JSON found");
+      return "";
+     }
+   
+   int depth = 0;
+   int end = -1;
+   for(int i = start; i < StringLen(response); i++)
+     {
+      ushort ch = StringGetCharacter(response, i);
+      if(ch == '{') depth++;
+      else if(ch == '}')
+        {
+         depth--;
+         if(depth == 0)
+           {
+            end = i;
+            break;
+           }
+        }
+     }
+   
+   if(end > start)
+      return StringSubstr(response, start, end - start + 1);
+   
    return "";
+  }
+
   }
 
 //+------------------------------------------------------------------+
