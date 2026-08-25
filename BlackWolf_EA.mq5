@@ -1,7 +1,7 @@
 //+------------------------------------------------------------------+
 //|                                              BlackWolf_EA.mq5       |
 //|                                    Copyright 2025, Black Wolf Trading  |
-//|                                    Version 3.13 - Spread Fix            |
+//|                                    Version 3.14 - Multi Model + Debug    |
 //+------------------------------------------------------------------+
 #property copyright "Black Wolf Trading"
 #property version   "3.10"
@@ -157,42 +157,53 @@ string BuildPrompt(string candleData)
 //+------------------------------------------------------------------+
 string CallGeminiAPI(string prompt)
   {
-   string url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=" + API_KEY;
+   // Try multiple models in order
+   string models[] = {"gemini-2.5-flash-preview-05-20", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-3.6-flash"};
    
    string escaped = EscapeJSON(prompt);
    string body = "{\"contents\":[{\"parts\":[{\"text\":\"" + escaped + "\"}]}],\"generationConfig\":{\"maxOutputTokens\":500,\"temperature\":0.7}}";
    
    string headers = "Content-Type: application/json\r\n";
    
-   char postData[];  
-   char resultData[];
-   string resultHeaders;
-   
-   int postLen = StringToCharArray(body, postData, 0, WHOLE_ARRAY, CP_UTF8);
-   if(postLen > 0) ArrayResize(postData, postLen - 1); // remove null terminator
-   
-   ResetLastError();
-   int res = WebRequest("POST", url, headers, 5000, postData, resultData, resultHeaders);
-   
-   if(res == -1)
+   for(int m = 0; m < ArraySize(models); m++)
      {
-      int err = GetLastError();
-      Print("WebRequest ERROR ", err);
-      if(err == 4060)
-         Print("FIX: Tools>Options>Expert Advisors>Allow WebRequest + add: generativelanguage.googleapis.com");
-      return "";
+      string url = "https://generativelanguage.googleapis.com/v1beta/models/" + models[m] + ":generateContent?key=" + API_KEY;
+      
+      char postData[];
+      char resultData[];
+      string resultHeaders;
+      int postLen = StringToCharArray(body, postData, 0, WHOLE_ARRAY, CP_UTF8);
+      if(postLen > 0) ArrayResize(postData, postLen - 1);
+      
+      ResetLastError();
+      Print("Trying model: ", models[m], "...");
+      int res = WebRequest("POST", url, headers, 30000, postData, resultData, resultHeaders);
+      
+      if(res == -1)
+        {
+         int err = GetLastError();
+         Print("  WebRequest ERROR ", err);
+         if(err == 4060)
+            Print("  FIX: Allow WebRequest + add: generativelanguage.googleapis.com");
+         continue;
+        }
+      
+      if(res != 200)
+        {
+         string s = CharArrayToString(resultData, 0, WHOLE_ARRAY, CP_UTF8);
+         string h = StringSubstr(resultHeaders, 0, 300);
+         Print("  HTTP ", res, " | Body: ", StringSubstr(s, 0, 200));
+         Print("  Headers: ", h);
+         continue;
+        }
+      
+      string resp = CharArrayToString(resultData, 0, WHOLE_ARRAY, CP_UTF8);
+      Print("Gemini OK [", models[m], "] len=", StringLen(resp));
+      return resp;
      }
    
-   if(res != 200)
-     {
-      string s = CharArrayToString(resultData, 0, WHOLE_ARRAY, CP_UTF8);
-      Print("HTTP ", res, ": ", StringSubstr(s, 0, 200));
-      return "";
-     }
-   
-   string resp = CharArrayToString(resultData, 0, WHOLE_ARRAY, CP_UTF8);
-   Print("Gemini OK, len=", StringLen(resp));
-   return resp;
+   Print("ALL MODELS FAILED");
+   return "";
   }
 
 //+------------------------------------------------------------------+
