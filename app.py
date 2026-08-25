@@ -447,8 +447,10 @@ The Expert Advisor is not reporting status. Make sure:
         st.markdown('</div>', unsafe_allow_html=True)
         return
     
-    if ea_data.get('error'):
-        st.warning(f"Connection error: {ea_data['error']}")
+    # EA puts reasoning in error field for SIGNAL - only show real errors
+    err_text = ea_data.get('error', '')
+    if err_text and ea_data.get('status', '').lower() == 'offline':
+        st.warning(f"Connection error: {err_text}")
         return
     
     # ── Account Metrics Row ──
