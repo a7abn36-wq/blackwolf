@@ -336,7 +336,7 @@ def fetch_ea_status():
         url = GITHUB_RAW_URL + "?t=" + str(int(time.time()))
         req = urllib.request.Request(url, headers={'User-Agent': 'BlackWolfApp'})
         with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode('utf-8'))
+            raw = resp.read().decode('utf-8').replace(chr(0), '').strip(); data = json.loads(raw)
             return data
     except Exception as e:
         return {"status": "offline", "error": str(e)}
