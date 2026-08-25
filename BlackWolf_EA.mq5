@@ -4,7 +4,7 @@
 //|                                    Version 3.15 - JSON Parse Fix       |
 //+------------------------------------------------------------------+
 #property copyright "Black Wolf Trading"
-#property version   "3.10"
+#property version   "3.15"
 #property strict
 
 //--- Inputs
@@ -47,8 +47,8 @@ int OnInit()
      }
    
    EventSetTimer(InpInterval * 60);
-   Print("Black Wolf EA v3.1 started. Symbol: ", _Symbol, " | Interval: ", InpInterval, " min");
-   Comment("\n  Black Wolf EA v3.1\n  Waiting for first analysis...\n");
+   Print("Black Wolf EA v3.15 started. Symbol: ", _Symbol, " | Interval: ", InpInterval, " min");
+   Comment("\n  Black Wolf EA v3.15\n  Waiting for first analysis...\n");
    
    PushStatusToGitHub();
    
@@ -71,7 +71,7 @@ void OnTimer()
    long spread = SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
    if(InpMaxSpread > 0 && spread > InpMaxSpread)
      {
-      Print("Spread ", spread, " > max ", InpMaxSpread, " - skipping analysis");
+      Print("Spread ", spread, " > max ", InpMaxSpread, " - skipping");
       PushStatusToGitHub();
       return;
      }
@@ -109,7 +109,7 @@ string RunAnalysis()
    if(response == "")
       return "";
    
-   return ExtractJSON(response);
+   return ExtractSignalJSON(response);
   }
 
 //+------------------------------------------------------------------+
@@ -193,45 +193,21 @@ string CallGeminiAPI(string prompt)
   }
 
 //+------------------------------------------------------------------+
-string ExtractJSON(string response)
+string EscapeJSON(string text)
   {
-   StringReplace(response, "```json", "");
-   StringReplace(response, "```", "");
-   
-   int start = StringFind(response, "{\"signal");
-   if(start < 0) start = StringFind(response, "{\" signal");
-   if(start < 0) start = StringFind(response, "{\"signal\":");
-   
-   if(start < 0)
-     {
-      Print("No signal JSON found in response");
-      return "";
-     }
-   
-   int depth = 0;
-   int end = -1;
-   for(int i = start; i < StringLen(response); i++)
-     {
-      ushort ch = StringGetCharacter(response, i);
-      if(ch == '{') depth++;
-      else if(ch == '}')
-        {
-         depth--;
-         if(depth == 0)
-           {
-            end = i;
-            break;
-           }
-        }
-     }
-   
-   if(end > start)
-      return StringSubstr(response, start, end - start + 1);
-   
+   string r = text;
+   StringReplace(r, "\\", "\\\\");
+   StringReplace(r, "\"", "\\\"");
+   StringReplace(r, "\n", "\\n");
+   StringReplace(r, "\r", "\\r");
+   StringReplace(r, "\t", "\\t");
+   return r;
+  }
+
 //+------------------------------------------------------------------+
-string ExtractJSON(string response)
+string ExtractSignalJSON(string response)
   {
-   // Step 1: Extract text from Gemini API JSON response
+   // Step 1: Find "text":"..." in Gemini API response
    string text = "";
    int tStart = StringFind(response, "\"text\":\"");
    if(tStart >= 0)
@@ -242,11 +218,11 @@ string ExtractJSON(string response)
          text = StringSubstr(response, tStart, tEnd - tStart);
      }
    
-   // Step 2: Unescape the text
+   // Step 2: Unescape JSON string (\" -> " , \n -> remove)
    if(StringLen(text) > 10)
      {
-      StringReplace(text, "\\"", "\");
-      StringReplace(text, "\n", "");
+      StringReplace(text, "\\\"", "\"");
+      StringReplace(text, "\\n", "");
       StringReplace(text, "```json", "");
       StringReplace(text, "```", "");
       
@@ -272,8 +248,8 @@ string ExtractJSON(string response)
         }
      }
    
-   // Step 3: Fallback
-   Print("Full response: ", StringSubstr(response, 0, 500));
+   // Step 3: Fallback - print first 500 chars and try raw
+   Print("Fallback. Resp: ", StringSubstr(response, 0, 500));
    StringReplace(response, "```json", "");
    StringReplace(response, "```", "");
    
@@ -287,29 +263,18 @@ string ExtractJSON(string response)
       return "";
      }
    
-   int depth = 0;
-   int end = -1;
+   int depth = 0, end = -1;
    for(int i = start; i < StringLen(response); i++)
      {
       ushort ch = StringGetCharacter(response, i);
       if(ch == '{') depth++;
-      else if(ch == '}')
-        {
-         depth--;
-         if(depth == 0)
-           {
-            end = i;
-            break;
-           }
-        }
+      else if(ch == '}') { depth--; if(depth == 0) { end = i; break; } }
      }
    
    if(end > start)
       return StringSubstr(response, start, end - start + 1);
    
    return "";
-  }
-
   }
 
 //+------------------------------------------------------------------+
@@ -333,7 +298,7 @@ void ProcessSignal(string signalJson)
    Print("=== Black Wolf === ", signal, " | ", entry, " | SL:", sl, " | TP:", tp1, " | Conf:", conf, "%");
    Print("Reason: ", reason, " | Risk: ", risk);
    
-   string c = "\n  Black Wolf EA v3.1\n";
+   string c = "\n  Black Wolf EA v3.15\n";
    c += "  Signal: " + signal + " (" + IntegerToString(conf) + "%)\n";
    c += "  Entry: " + DoubleToString(entry, 2) + "\n";
    c += "  SL: " + DoubleToString(sl, 2) + "\n";
@@ -343,7 +308,7 @@ void ProcessSignal(string signalJson)
    if(StringLen(GH_TOKEN) >= 10)
       c += "ON";
    else
-      c += "OFF (no token)";
+      c += "OFF";
    Comment(c);
    
    if(signal != "BUY" && signal != "SELL")
@@ -517,7 +482,6 @@ void PushStatusToGitHub()
    if(StringLen(GH_TOKEN) < 10)
       return;
    
-   // 1. GET current file to obtain SHA
    string getUrl = GH_API_URL;
    string getHeaders = "Authorization: token " + GH_TOKEN + "\r\nUser-Agent: BlackWolfEA\r\n";
    
@@ -538,11 +502,10 @@ void PushStatusToGitHub()
    
    if(StringLen(sha) < 10)
      {
-      Print("Failed to get file SHA");
+      Print("Failed to get SHA");
       return;
      }
    
-   // 2. Build account data
    double balance    = AccountInfoDouble(ACCOUNT_BALANCE);
    double equity     = AccountInfoDouble(ACCOUNT_EQUITY);
    double margin     = AccountInfoDouble(ACCOUNT_MARGIN);
@@ -588,7 +551,6 @@ void PushStatusToGitHub()
       if(dd > 0.0) drawdown = dd;
      }
    
-   // 3. Build status JSON
    string timestamp = TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS);
    StringReplace(timestamp, ".", "-");
    string sJson = "{";
@@ -611,29 +573,22 @@ void PushStatusToGitHub()
    sJson += ",\"last_analysis\":\"" + lastAna + "\"";
    sJson += "}";
    
-   // 4. Base64 encode (manual - no CryptEncode needed)
    string encoded = Base64Encode(sJson);
    
-   // 5. PUT to update file
-   string putBody = "{\"message\":\"EA status update\",\"content\":\"" + encoded + "\",\"sha\":\"" + sha + "\"}";
+   string putBody = "{\"message\":\"EA status update\",\"content\":\"" + encoded + "\",\"sha\":\"" + sha + "\""}";
    string putHeaders = "Authorization: token " + GH_TOKEN + "\r\nContent-Type: application/json\r\nUser-Agent: BlackWolfEA\r\n";
    
    char putData[];
    char putResult[];
    string putResultHeaders;
    int putLen = StringToCharArray(putBody, putData, 0, WHOLE_ARRAY, CP_UTF8);
-   if(putLen > 0) ArrayResize(putData, putLen - 1); // remove null terminator
-   
-   // Debug: print first 100 chars of putBody
-   Print("PUT body len=", StringLen(putBody), " array=", putLen);
+   if(putLen > 0) ArrayResize(putData, putLen - 1);
    
    ResetLastError();
    res = WebRequest("PUT", GH_API_URL, putHeaders, 5000, putData, putResult, putResultHeaders);
    
    if(res == 200 || res == 201)
-     {
       Print("Status pushed to GitHub OK");
-     }
    else
      {
       string errResp = CharArrayToString(putResult, 0, WHOLE_ARRAY, CP_UTF8);
